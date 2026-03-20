@@ -24,14 +24,14 @@ class TinyDiffusionModel(nn.Module):
         self.digit_embedding = nn.Embedding(3, cond_dim)
         self.time_proj = nn.Sequential(
             nn.Linear(4, time_dim),
-            nn.SiLU(),
+            nn.ReLU(),
             nn.Linear(time_dim, time_dim),
         )
         self.net = nn.Sequential(
             nn.Linear(self.latent_dim + cond_dim + time_dim, hidden_dim),
-            nn.SiLU(),
+            nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.SiLU(),
+            nn.ReLU(),
             nn.Linear(hidden_dim, self.latent_dim),
         )
 

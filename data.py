@@ -132,11 +132,109 @@ class TinyVideoDataset(Dataset):
         return torch.tensor(digit, dtype=torch.long), video
 
 
+class TensorVideoDataset(Dataset):
+    def __init__(self, digits: torch.Tensor, videos: torch.Tensor):
+        if digits.ndim != 1:
+            raise ValueError("Expected digits tensor with shape [num_samples].")
+        if videos.ndim != 5:
+            raise ValueError("Expected videos tensor with shape [num_samples, frame_count, 1, height, width].")
+        if digits.shape[0] != videos.shape[0]:
+            raise ValueError("Digits and videos must contain the same number of samples.")
+        self.digits = digits.to(torch.long).contiguous()
+        self.videos = videos.to(torch.float32).contiguous()
+
+    def __len__(self) -> int:
+        return self.digits.shape[0]
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.digits[index], self.videos[index]
+
+
+def generate_dataset_tensors(
+    digits: Iterable[int] = (0, 1, 2),
+    num_samples: int = 2048,
+    frame_count: int = FRAME_COUNT,
+    frame_size: int = FRAME_SIZE,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    dataset = TinyVideoDataset(
+        DatasetConfig(
+            digits=tuple(digits),
+            num_samples=num_samples,
+            frame_count=frame_count,
+            frame_size=frame_size,
+        )
+    )
+    all_digits = []
+    all_videos = []
+    for index in range(len(dataset)):
+        digit, video = dataset[index]
+        all_digits.append(digit)
+        all_videos.append(video)
+    return torch.stack(all_digits, dim=0), torch.stack(all_videos, dim=0)
+
+
+def save_dataset_cache(
+    output_path: Path,
+    digits: Iterable[int] = (0, 1, 2),
+    num_samples: int = 2048,
+    frame_count: int = FRAME_COUNT,
+    frame_size: int = FRAME_SIZE,
+) -> Path:
+    digits = tuple(int(d) for d in digits)
+    digits_tensor, videos_tensor = generate_dataset_tensors(
+        digits=digits,
+        num_samples=num_samples,
+        frame_count=frame_count,
+        frame_size=frame_size,
+    )
+    payload = {
+        "digits": digits_tensor,
+        "videos": videos_tensor,
+        "config": {
+            "digits": digits,
+            "num_samples": num_samples,
+            "frame_count": frame_count,
+            "frame_size": frame_size,
+        },
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(payload, output_path)
+    return output_path
+
+
+def load_dataset_cache(path: Path) -> TensorVideoDataset:
+    payload = torch.load(path, map_location="cpu")
+    return TensorVideoDataset(payload["digits"], payload["videos"])
+
+
 def build_dataset(
     digits: Iterable[int] = (0, 1, 2),
     num_samples: int = 2048,
-) -> TinyVideoDataset:
-    return TinyVideoDataset(DatasetConfig(digits=tuple(digits), num_samples=num_samples))
+    cache_path: Path | None = None,
+    rebuild: bool = False,
+) -> TensorVideoDataset:
+    digits = tuple(int(d) for d in digits)
+    if cache_path is None:
+        digits_tensor, videos_tensor = generate_dataset_tensors(digits=digits, num_samples=num_samples)
+        return TensorVideoDataset(digits_tensor, videos_tensor)
+
+    if rebuild or not cache_path.exists():
+        save_dataset_cache(cache_path, digits=digits, num_samples=num_samples)
+
+    payload = torch.load(cache_path, map_location="cpu")
+    config = payload.get("config", {})
+    expected_config = {
+        "digits": digits,
+        "num_samples": num_samples,
+        "frame_count": FRAME_COUNT,
+        "frame_size": FRAME_SIZE,
+    }
+    if config != expected_config:
+        raise ValueError(
+            f"Dataset cache at {cache_path} was built with config {config}, expected {expected_config}. "
+            "Use a different cache path or rebuild the dataset."
+        )
+    return TensorVideoDataset(payload["digits"], payload["videos"])
 
 
 def _frame_to_bytes(frame: torch.Tensor) -> bytes:

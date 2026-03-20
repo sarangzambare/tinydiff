@@ -13,15 +13,17 @@ from model import DiffusionSchedule, TinyDiffusionModel, count_parameters, encod
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train a tiny conditional video diffusion model.")
-    parser.add_argument("--steps", type=int, default=10000, help="Number of gradient steps.")
-    parser.add_argument("--batch-size", type=int, default=64, help="Batch size.")
+    parser.add_argument("--steps", type=int, default=100_000, help="Number of gradient steps.")
+    parser.add_argument("--batch-size", type=int, default=128, help="Batch size.")
     parser.add_argument("--num-samples", type=int, default=4096, help="Procedurally generated training samples.")
     parser.add_argument("--digits", type=int, nargs="*", default=[0, 1, 2], help="Digits to include in training.")
     parser.add_argument("--lr", type=float, default=3e-3, help="Learning rate.")
-    parser.add_argument("--hidden-dim", type=int, default=64, help="Hidden width of the tiny MLP denoiser.")
+    parser.add_argument("--hidden-dim", type=int, default=128, help="Hidden width of the tiny MLP denoiser.")
     parser.add_argument("--latent-size", type=int, default=8, help="Spatial latent resolution per frame.")
     parser.add_argument("--diffusion-steps", type=int, default=10, help="Number of diffusion steps.")
-    parser.add_argument("--save-path", type=Path, default=Path("tinyvid.pt"), help="Checkpoint output path.")
+    parser.add_argument("--dataset-path", type=Path, default=Path("dataset_cache.pt"), help="Path to the precomputed dataset cache.")
+    parser.add_argument("--rebuild-dataset", action="store_true", help="Regenerate the dataset cache before training.")
+    parser.add_argument("--save-path", type=Path, default=Path("outputs/tinyvid.pt"), help="Checkpoint output path.")
     parser.add_argument("--device", type=str, default="cuda", help="Device string, for example cpu or cuda.")
     parser.add_argument("--seed", type=int, default=0, help="Random seed.")
     parser.add_argument("--log-every", type=int, default=5, help="Print every N training steps.")
@@ -30,15 +32,7 @@ def parse_args() -> argparse.Namespace:
 
 def sample_batch(dataset, batch_size: int) -> tuple[torch.Tensor, torch.Tensor]:
     indices = torch.randint(0, len(dataset), (batch_size,))
-    digits = []
-    videos = []
-
-    for index in indices.tolist():
-        digit, video = dataset[index]
-        digits.append(digit)
-        videos.append(video)
-
-    return torch.stack(digits, dim=0), torch.stack(videos, dim=0)
+    return dataset.digits[indices], dataset.videos[indices]
 
 
 def main() -> None:
@@ -48,7 +42,16 @@ def main() -> None:
     torch.manual_seed(args.seed)
 
     device = torch.device(args.device)
-    dataset = build_dataset(digits=args.digits, num_samples=args.num_samples)
+    if args.rebuild_dataset or not args.dataset_path.exists():
+        print(f"building dataset cache at {args.dataset_path}")
+    else:
+        print(f"loading dataset cache from {args.dataset_path}")
+    dataset = build_dataset(
+        digits=args.digits,
+        num_samples=args.num_samples,
+        cache_path=args.dataset_path,
+        rebuild=args.rebuild_dataset,
+    )
 
     model = TinyDiffusionModel(
         frame_count=FRAME_COUNT,
@@ -59,6 +62,7 @@ def main() -> None:
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     print(f"training on {device} with {count_parameters(model):,} trainable parameters")
+    print(f"loaded {len(dataset):,} cached samples from {args.dataset_path}")
 
     model.train()
     for step in range(1, args.steps + 1):

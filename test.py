@@ -13,10 +13,10 @@ from model import DiffusionSchedule, TinyDiffusionModel, sample_video
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sample a video from a trained tiny diffusion checkpoint.")
-    parser.add_argument("--checkpoint", type=Path, default=Path("tinyvid.pt"), help="Checkpoint saved by train.py.")
+    parser.add_argument("--checkpoint", type=Path, default=Path("outputs/tinyvid.pt"), help="Checkpoint saved by train.py.")
     parser.add_argument("--digit", type=int, default=2, help="Digit to animate.")
     parser.add_argument("--device", type=str, default="cpu", help="Device string, for example cpu or cuda.")
-    parser.add_argument("--out", type=Path, default=Path("sample.gif"), help="Output animation path.")
+    parser.add_argument("--out", type=Path, default=Path("outputs/output.gif"), help="Output animation path.")
     parser.add_argument("--fps", type=int, default=10, help="Frames per second for the output animation.")
     return parser.parse_args()
 
